@@ -1,0 +1,34 @@
+services:
+  ddos-manager:
+    build: .
+    image: ddos-manager:latest
+    container_name: ddos-manager
+    restart: unless-stopped
+    ports:
+      - "443:443"
+      - "80:80"
+    volumes:
+      - ddos_data:/app/data
+    environment:
+      # REQUIRED: Change this to a strong random string in production!
+      SECRET_KEY: ${SECRET_KEY:-CHANGE_ME_TO_A_STRONG_RANDOM_STRING_IN_PRODUCTION}
+      POLL_INTERVAL_SECONDS: ${POLL_INTERVAL_SECONDS:-60}
+      CERT_DIR: /app/data/certs
+      DB_PATH: /app/data/ddos.db
+      # Set to "true" to log full Imperva API responses for debugging
+      IMPERVA_DEBUG: ${IMPERVA_DEBUG:-false}
+    healthcheck:
+      test: ["CMD", "curl", "-k", "-f", "https://localhost/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  ddos_data:
+    driver: local

@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.eggs/
+.venv/
+venv/
+env/
+
+# Database / secrets
+backend/data/
+*.db
+*.sqlite3
+*.key
+*.pem
+*.crt
+
+# Node / Frontend
+frontend/node_modules/
+frontend/dist/
+
+# Docker
+.dockerignore
+
+# macOS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+*.swp
