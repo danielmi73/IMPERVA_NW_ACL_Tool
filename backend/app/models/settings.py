@@ -26,7 +26,10 @@ class Settings(Base):
     smtp_user = Column(String, nullable=True)
     smtp_password = Column(Text, nullable=True)  # encrypted
     smtp_from_address = Column(String, nullable=True)
-    smtp_use_tls = Column(Boolean, default=True)
+    smtp_use_tls = Column(Boolean, default=True)  # kept for migration compat
+    smtp_encryption = Column(String, default="STARTTLS")  # "STARTTLS" | "SSL/TLS" | "None"
+    smtp_default_subject = Column(String, nullable=True)
+    smtp_default_body = Column(Text, nullable=True)
     # Scheduler
     poll_interval_seconds = Column(Integer, default=60)
 

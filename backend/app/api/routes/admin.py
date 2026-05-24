@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, Literal
 from datetime import datetime
 
 from app.db.session import get_db
@@ -26,9 +26,11 @@ class SMTPRequest(BaseModel):
     smtp_host: str
     smtp_port: int = 587
     smtp_user: str
-    smtp_password: str
+    smtp_password: str = ""           # empty = keep existing password
     smtp_from_address: str
-    smtp_use_tls: bool = True
+    smtp_encryption: Literal["STARTTLS", "SSL/TLS", "None"] = "STARTTLS"
+    smtp_default_subject: Optional[str] = None
+    smtp_default_body: Optional[str] = None
 
 
 class PollIntervalRequest(BaseModel):
@@ -50,6 +52,13 @@ class AdminSettingsResponse(BaseModel):
     setup_complete: bool
     poll_interval_seconds: int
     smtp_configured: bool
+    smtp_host: Optional[str]
+    smtp_port: Optional[int]
+    smtp_user: Optional[str]
+    smtp_from_address: Optional[str]
+    smtp_encryption: Optional[str]
+    smtp_default_subject: Optional[str]
+    smtp_default_body: Optional[str]
 
 
 @router.get("/settings", response_model=AdminSettingsResponse)
@@ -67,6 +76,13 @@ def get_settings(
         setup_complete=cfg.setup_complete,
         poll_interval_seconds=cfg.poll_interval_seconds or 60,
         smtp_configured=bool(cfg.smtp_host and cfg.smtp_user),
+        smtp_host=cfg.smtp_host,
+        smtp_port=cfg.smtp_port,
+        smtp_user=cfg.smtp_user,
+        smtp_from_address=cfg.smtp_from_address,
+        smtp_encryption=cfg.smtp_encryption or "STARTTLS",
+        smtp_default_subject=cfg.smtp_default_subject,
+        smtp_default_body=cfg.smtp_default_body,
     )
 
 
@@ -262,3 +278,65 @@ def update_acl_policy_description(
         policy.description = payload["description"]
         db.commit()
     return {"id": policy.id, "description": policy.description}
+
+
+# ---------------------------------------------------------------------------
+# SMTP endpoints
+# ---------------------------------------------------------------------------
+
+@router.post("/smtp")
+def save_smtp_settings(
+    req: SMTPRequest,
+    db: Session = Depends(get_db),
+    _: Settings = Depends(get_current_admin),
+):
+    """Save SMTP server configuration and optional email template."""
+    cfg: Settings = db.query(Settings).filter(Settings.id == 1).first()
+    cfg.smtp_host = req.smtp_host
+    cfg.smtp_port = req.smtp_port
+    cfg.smtp_user = req.smtp_user
+    cfg.smtp_from_address = req.smtp_from_address
+    cfg.smtp_encryption = req.smtp_encryption
+
+    # Only re-encrypt password if the caller provided a new one
+    if req.smtp_password:
+        cfg.smtp_password = encrypt_value(req.smtp_password)
+
+    if req.smtp_default_subject is not None:
+        cfg.smtp_default_subject = req.smtp_default_subject
+    if req.smtp_default_body is not None:
+        cfg.smtp_default_body = req.smtp_default_body
+
+    db.commit()
+    return {"message": "SMTP settings saved"}
+
+
+@router.post("/smtp/test")
+async def test_smtp(
+    db: Session = Depends(get_db),
+    cfg: Settings = Depends(get_current_admin),
+):
+    """Send a test email to the configured sender address to verify SMTP settings."""
+    if not cfg.smtp_host or not cfg.smtp_user or not cfg.smtp_from_address:
+        raise HTTPException(status_code=400, detail="SMTP not configured")
+
+    from app.services.notifier import send_email_notification
+    from datetime import datetime, timezone
+    try:
+        await send_email_notification(
+            db=db,
+            customer_email=cfg.smtp_from_address,
+            customer_name="Admin (Test)",
+            event_type="Attack Started",
+            prefix="203.0.113.0/24",
+            acl_id="12345",
+            acl_name="Test ACL Policy",
+            detected_at=datetime.now(timezone.utc),
+            peak_mbps=4820.5,
+            threshold_mbps=1000.0,
+            custom_message="This is a test email sent from the DDoS Management System.",
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"SMTP test failed: {exc}")
+
+    return {"message": f"Test email sent to {cfg.smtp_from_address}"}

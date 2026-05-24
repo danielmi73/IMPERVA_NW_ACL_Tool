@@ -1,8 +1,9 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { customerAPI, prefixAPI, adminAPI } from '../services/api';
 import AttackBadge from '../components/AttackBadge';
 import { formatDateTime } from '../utils/date';
+import TemplateVariableHelper, { NOTIFICATION_VARIABLES } from '../components/TemplateVariableHelper';
 
 interface CustomerDetail {
   id: number;
@@ -52,6 +53,7 @@ export default function Customer() {
   const [success, setSuccess] = useState('');
 
   const customerId = Number(id);
+  const customMsgRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     loadCustomer();
@@ -139,8 +141,44 @@ export default function Customer() {
             <input className="form-input" type="email" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} placeholder="customer@example.com" />
           </div>
           <div className="form-group">
-            <label className="form-label">Custom Message (Phase 2)</label>
-            <textarea className="form-input" rows={3} value={form.custom_message} onChange={e => setForm({ ...form, custom_message: e.target.value })} placeholder="Custom notification message..." style={{ resize: 'vertical' }} />
+            <label className="form-label">Custom Message</label>
+            <p className="text-muted" style={{ fontSize: '0.8rem', marginBottom: 6 }}>
+              Appended inside the global notification email template at <code style={{ fontSize: '0.8rem' }}>{`{{custom_message}}`}</code>.
+              Supports template variables. Leave blank to omit this section.
+            </p>
+            <textarea
+              ref={customMsgRef}
+              className="form-input"
+              rows={4}
+              value={form.custom_message}
+              onChange={e => setForm({ ...form, custom_message: e.target.value })}
+              placeholder="e.g. Your service is currently under a volumetric DDoS attack targeting {{prefix}}. Our systems have automatically applied mitigation via {{acl_name}}."
+              style={{ resize: 'vertical' }}
+              id="customer-custom-message"
+            />
+            <TemplateVariableHelper
+              textareaRef={customMsgRef as any}
+              onInsert={val => setForm(f => ({ ...f, custom_message: val }))}
+              variables={NOTIFICATION_VARIABLES}
+            />
+            {/* Inline preview */}
+            {form.custom_message.trim() && (
+              <div className="custom-msg-preview">
+                <div className="custom-msg-preview-label">Preview (with sample values)</div>
+                <div className="custom-msg-preview-body">
+                  {form.custom_message
+                    .replace(/\{\{event_type\}\}/g,     'Attack Started')
+                    .replace(/\{\{prefix\}\}/g,         '203.0.113.0/24')
+                    .replace(/\{\{acl_name\}\}/g,       'Block All Traffic')
+                    .replace(/\{\{acl_id\}\}/g,         '12345')
+                    .replace(/\{\{customer_name\}\}/g,  form.name || 'Customer')
+                    .replace(/\{\{detected_at\}\}/g,    '2026-05-24 21:00 UTC')
+                    .replace(/\{\{peak_mbps\}\}/g,      '4820.5')
+                    .replace(/\{\{threshold_mbps\}\}/g, '1000.0')
+                  }
+                </div>
+              </div>
+            )}
           </div>
           <button className="btn btn-primary" onClick={handleSave}>Save Changes</button>
         </div>

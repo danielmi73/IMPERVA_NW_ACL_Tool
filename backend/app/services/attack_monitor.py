@@ -8,13 +8,15 @@ Removes ACL when attack ends.
 import logging
 from datetime import datetime, timezone, timedelta
 
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.db.session import SessionLocal
 from app.models.prefix import Prefix
 from app.models.settings import Settings
 from app.models.attack_event import AttackEvent
+from app.models.acl_policy import ACLPolicy
 from app.services.imperva import ImpervaClient, ImpervaAPIError, ImpervaKeyExpiredError
+from app.services.notifier import notify_attack_start, notify_attack_end
 from app.core.security import decrypt_value
 
 logger = logging.getLogger(__name__)
@@ -124,12 +126,22 @@ async def _handle_attack_start(
     cidr: str,
 ):
     """Handle a DDOS_START_IP_RANGE event."""
-    # Find the prefix in our DB
+    # Find the prefix in our DB (eager-load customer for email notifications)
     prefix: Prefix | None = None
     if asset_id:
-        prefix = db.query(Prefix).filter(Prefix.imperva_asset_id == asset_id).first()
+        prefix = (
+            db.query(Prefix)
+            .options(joinedload(Prefix.customer))
+            .filter(Prefix.imperva_asset_id == asset_id)
+            .first()
+        )
     if prefix is None and cidr:
-        prefix = db.query(Prefix).filter(Prefix.cidr == cidr).first()
+        prefix = (
+            db.query(Prefix)
+            .options(joinedload(Prefix.customer))
+            .filter(Prefix.cidr == cidr)
+            .first()
+        )
 
     if prefix is None:
         logger.info(f"Attack start event for unknown asset {asset_id} / {cidr} — not in DB, ignoring")
@@ -190,6 +202,28 @@ async def _handle_attack_start(
     )
     logger.info(f"Attack event #{attack_event.id} recorded for prefix {prefix.cidr}")
 
+    # Email notification
+    if prefix.notify_customer and prefix.customer and prefix.customer.email:
+        acl_policy_name = None
+        if prefix.acl_policy_id:
+            acl_obj = db.query(ACLPolicy).filter(ACLPolicy.id == prefix.acl_policy_id).first()
+            acl_policy_name = acl_obj.name if acl_obj else None
+        try:
+            await notify_attack_start(
+                db=db,
+                customer_email=prefix.customer.email,
+                customer_name=prefix.customer.name,
+                cidr=prefix.cidr,
+                acl_id=prefix.acl_policy_id,
+                acl_name=acl_policy_name,
+                detected_at=event_time,
+                peak_mbps=peak_mbps,
+                threshold_mbps=prefix.threshold_mbps,
+                custom_message=prefix.customer.custom_message,
+            )
+        except Exception as exc:
+            logger.error(f"Failed to send attack-start notification: {exc}")
+
 
 async def _handle_attack_stop(
     db: Session,
@@ -199,11 +233,22 @@ async def _handle_attack_stop(
     cidr: str,
 ):
     """Handle a DDOS_STOP_IP_RANGE event."""
+    # Find the prefix in our DB (eager-load customer for email notifications)
     prefix: Prefix | None = None
     if asset_id:
-        prefix = db.query(Prefix).filter(Prefix.imperva_asset_id == asset_id).first()
+        prefix = (
+            db.query(Prefix)
+            .options(joinedload(Prefix.customer))
+            .filter(Prefix.imperva_asset_id == asset_id)
+            .first()
+        )
     if prefix is None and cidr:
-        prefix = db.query(Prefix).filter(Prefix.cidr == cidr).first()
+        prefix = (
+            db.query(Prefix)
+            .options(joinedload(Prefix.customer))
+            .filter(Prefix.cidr == cidr)
+            .first()
+        )
 
     if prefix is None:
         logger.info(f"Attack stop event for unknown asset {asset_id} / {cidr} — ignoring")
@@ -256,6 +301,28 @@ async def _handle_attack_stop(
     else:
         # Log a standalone stop event if no open start event was found
         _log_attack_event(db, prefix, event_type="DDOS_STOP_IP_RANGE", imperva_event_id=imperva_event_id, event_time=event_time, peak_mbps=peak_mbps)
+
+    # Email notification
+    if prefix.notify_customer and prefix.customer and prefix.customer.email:
+        acl_policy_name = None
+        if prefix.acl_policy_id:
+            acl_obj = db.query(ACLPolicy).filter(ACLPolicy.id == prefix.acl_policy_id).first()
+            acl_policy_name = acl_obj.name if acl_obj else None
+        try:
+            await notify_attack_end(
+                db=db,
+                customer_email=prefix.customer.email,
+                customer_name=prefix.customer.name,
+                cidr=prefix.cidr,
+                acl_id=prefix.acl_policy_id,
+                acl_name=acl_policy_name,
+                detected_at=event_time,
+                peak_mbps=peak_mbps,
+                threshold_mbps=prefix.threshold_mbps,
+                custom_message=prefix.customer.custom_message,
+            )
+        except Exception as exc:
+            logger.error(f"Failed to send attack-stop notification: {exc}")
 
 
 def _log_attack_event(

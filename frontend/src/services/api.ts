@@ -46,6 +46,12 @@ export const adminAPI = {
   getACLPolicies: (sync = false) => api.get(`/admin/acl-policies?sync=${sync}`),
   updateACLDescription: (policyId: string, description: string) =>
     api.patch(`/admin/acl-policies/${policyId}`, { description }),
+  saveSMTP: (data: {
+    smtp_host: string; smtp_port: number; smtp_user: string; smtp_password: string;
+    smtp_from_address: string; smtp_encryption: string;
+    smtp_default_subject?: string; smtp_default_body?: string;
+  }) => api.post('/admin/smtp', data),
+  testSMTP: () => api.post('/admin/smtp/test'),
 };
 
 /* ---- Prefixes ---- */
