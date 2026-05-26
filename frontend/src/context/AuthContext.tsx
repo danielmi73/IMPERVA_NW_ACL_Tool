@@ -40,7 +40,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const login = async (password: string) => {
     const { data } = await authAPI.login(password);
     localStorage.setItem('ddos_token', data.access_token);
-    setIsAuthenticated(true);
+    
+    const statusRes = await authAPI.getStatus();
+    setSetupComplete(statusRes.data.setup_complete);
+    setPasswordSet(statusRes.data.password_set);
+    setIsAuthenticated(statusRes.data.setup_complete);
   };
 
   const logout = () => {

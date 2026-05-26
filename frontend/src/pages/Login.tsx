@@ -25,7 +25,13 @@ export default function Login() {
     if (passwordSet === false) {
       initialStep = 'setup-password';
     } else {
-      initialStep = 'setup-api';
+      // Check if we have a token. If not, the user must login first.
+      const token = localStorage.getItem('ddos_token');
+      if (token) {
+        initialStep = 'setup-api';
+      } else {
+        initialStep = 'login';
+      }
     }
   }
 
@@ -36,7 +42,12 @@ export default function Login() {
       if (passwordSet === false) {
         setStep('setup-password');
       } else {
-        setStep('setup-api');
+        const token = localStorage.getItem('ddos_token');
+        if (token) {
+          setStep('setup-api');
+        } else {
+          setStep('login');
+        }
       }
     } else if (setupComplete === true) {
       setStep('login');
@@ -56,6 +67,9 @@ export default function Login() {
     setLoading(true);
     try {
       await login(password);
+      if (setupComplete === false) {
+        setStep('setup-api');
+      }
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Login failed');
     } finally {
@@ -113,7 +127,7 @@ export default function Login() {
           <ShieldIcon />
           <h1>DDoS Prefix Manager</h1>
           <p>
-            {step === 'login' && 'Sign in to your dashboard'}
+            {step === 'login' && (setupComplete === false ? 'First-time setup — Please login to continue' : 'Sign in to your dashboard')}
             {step === 'setup-password' && 'First-time setup — Set admin password'}
             {step === 'setup-api' && 'Configure Imperva API credentials'}
           </p>
